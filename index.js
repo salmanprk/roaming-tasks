@@ -24,33 +24,7 @@ const listenForChanges = async () => {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'CRSDraws' }, (payload) => {
             console.log(new Date().toISOString(), 'Change detected');
 
-            if (debounceTimer) {
-                console.log(new Date().toISOString(), 'Clearing previous timer');
-                clearTimeout(debounceTimer);
-            }
-
-            // Remove isProcessing check - we only need it during actual processing
-            console.log(new Date().toISOString(), 'Starting new timer...');
-            debounceTimer = setTimeout(async () => {
-                console.log(new Date().toISOString(), 'Timer finished, starting update...');
-                if (!isProcessing) {  // Move the check here
-                    isProcessing = true;
-                    try {
-                        console.log(new Date().toISOString(), 'About to call handleCRSDrawsUpdate');
-                        console.log('Payload:', JSON.stringify(payload, null, 2));
-                        await handleCRSDrawsUpdate(payload);
-                        console.log(new Date().toISOString(), 'Change processed successfully');
-                    } catch (error) {
-                        console.error(new Date().toISOString(), 'Error processing change:', error);
-                        console.error('Error stack:', error.stack);
-                    } finally {
-                        console.log(new Date().toISOString(), 'Finally block reached');
-                        isProcessing = false;
-                        debounceTimer = null;
-                    }
-                }
-            }, 45000); // Wait 45 second before processing
-            console.log(new Date().toISOString(), `Timer set (ID: ${debounceTimer}), waiting 45 seconds...`);
+            handleBalancer(payload);
         })
         .subscribe();
 };
@@ -73,3 +47,35 @@ process.on('SIGTERM', () => {
     console.log('Process terminated');
     process.exit(0);
 });
+
+
+function handleBalancer(payload) {
+    if (debounceTimer) {
+        console.log(new Date().toISOString(), 'Clearing previous timer');
+        clearTimeout(debounceTimer);
+    }
+
+    // Remove isProcessing check - we only need it during actual processing
+    console.log(new Date().toISOString(), 'Starting new timer...');
+    debounceTimer = setTimeout(async () => {
+        console.log(new Date().toISOString(), 'Timer finished, starting update...');
+        if (!isProcessing) {
+            isProcessing = true;
+            try {
+                console.log(new Date().toISOString(), 'Before calling handlers');
+                // Put functions here
+                await handleCRSDrawsUpdate(payload);
+                // Put functions here
+                console.log(new Date().toISOString(), 'Change processed successfully');
+            } catch (error) {
+                console.error(new Date().toISOString(), 'Error processing change:', error);
+            } finally {
+                console.log(new Date().toISOString(), 'Resetting isProcessing and debounceTimer');
+                isProcessing = false;
+                debounceTimer = null;
+            }
+        }
+    }, 45000); // Wait 45 second before processing
+    console.log(new Date().toISOString(), `Timer set (ID: ${debounceTimer}), waiting 45 seconds...`);
+}
+
