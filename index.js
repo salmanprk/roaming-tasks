@@ -48,13 +48,15 @@ process.on('SIGTERM', () => {
     process.exit(0);
 });
 
-
+// Debouncer function
+// it will only process the change if it hasn't been processed in the last 45 seconds
+// if it has been detected in the last 45 seconds, it will skip the change
+// it will also reset the timer if it has been detected in the last 45 seconds
 function handleBalancer(payload) {
     if (debounceTimer) {
         console.log(new Date().toISOString(), 'Clearing previous timer');
         clearTimeout(debounceTimer);
     }
-
     // Remove isProcessing check - we only need it during actual processing
     console.log(new Date().toISOString(), 'Starting new timer...');
     debounceTimer = setTimeout(async () => {
