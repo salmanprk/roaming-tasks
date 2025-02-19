@@ -1,83 +1,103 @@
-import { createClient } from '@supabase/supabase-js';
+import Fastify from 'fastify';
 import dotenv from 'dotenv';
-import express from 'express';
+import { createClient } from '@supabase/supabase-js';
 import { handleCRSDrawsUpdate } from './handlers.js';
+import { format } from 'date-fns';
+import { log, ts } from './utils/logger.js';
+// Initialize environment variables
 dotenv.config();
 
+const app = Fastify({
+    logger: {
+        transport: {
+            target: 'pino-pretty',
+            options: {
+                colorize: true,
+                ignore: 'pid,hostname',
+                // translateTime: 'SYS:standard'
+            }
+        }
+    }
+});
+
 // Initialize Supabase client
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
-// Initialize Express server
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Add debounce flag at the top level scope
-let isProcessing = false;
+// Single timer and flag for all changes
 let debounceTimer = null;
+let isProcessing = false;
 
-// Function to listen for real-time changes
+// Root route - just to confirm service is running
+app.get('/', async (request, reply) => {
+    return { status: 'CRSDraws real-time listener is running!' };
+});
+// Function to handle changes (your existing code)
+function handleBalancer(payload) {
+    app.log.info('Change detected');
+
+    if (debounceTimer) {
+        app.log.info('Clearing previous timer');
+        clearTimeout(debounceTimer);
+    }
+
+    app.log.info('Starting new timer...');
+    debounceTimer = setTimeout(async () => {
+        app.log.info('Timer finished, starting update...');
+        if (!isProcessing) {
+            isProcessing = true;
+            try {
+                log.info('Before calling handlers');
+                await handleCRSDrawsUpdate(payload);
+                log.success('Change processed successfully');
+            } catch (error) {
+                log.error('Error processing change:', error);
+            } finally {
+                log.info('Resetting flags');
+                isProcessing = false;
+                debounceTimer = null;
+            }
+        }
+    }, 10000);
+
+    app.log.info(`Timer set (ID: ${debounceTimer}), waiting 10 seconds...`);
+}
+
+// Function to listen for changes
 const listenForChanges = async () => {
     console.log('Listening for updates on CRSDraws table...');
 
     supabase
         .channel('crs-draws-updates')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'CRSDraws' }, (payload) => {
-            console.log(new Date().toISOString(), 'Change detected');
-
-            handleBalancer(payload);
-        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'CRSDraws' }, handleBalancer)
         .subscribe();
 };
 
-// Start listening for changes
-listenForChanges();
+// Start the server
+const start = async () => {
+    try {
+        await app.listen({ port: process.env.PORT || 3000, host: '0.0.0.0' });
+        log.info(`Server is running on port ${app.server.address().port}`);
 
-// Simple API route
-app.get('/', (req, res) => {
-    res.send('CRSDraws real-time listener is running!');
-});
-
-// Start the Express server
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+        // Start listening for Supabase changes
+        await listenForChanges();
+    } catch (err) {
+        log.error('Error starting server:', err);
+        process.exit(1);
+    }
+};
 
 // Handle graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('Process terminated');
+const closeGracefully = async (signal) => {
+    app.log.warn(`Received signal to terminate: ${signal}`);
+    await app.close();
     process.exit(0);
-});
+};
 
-// Debouncer function
-// it will only process the change if it hasn't been processed in the last 45 seconds
-// if it has been detected in the last 45 seconds, it will skip the change
-// it will also reset the timer if it has been detected in the last 45 seconds
-function handleBalancer(payload) {
-    if (debounceTimer) {
-        console.log(new Date().toISOString(), 'Clearing previous timer');
-        clearTimeout(debounceTimer);
-    }
-    // Remove isProcessing check - we only need it during actual processing
-    console.log(new Date().toISOString(), 'Starting new timer...');
-    debounceTimer = setTimeout(async () => {
-        console.log(new Date().toISOString(), 'Timer finished, starting update...');
-        if (!isProcessing) {
-            isProcessing = true;
-            try {
-                console.log(new Date().toISOString(), 'Before calling handlers');
-                // Put functions here
-                await handleCRSDrawsUpdate(payload);
-                // Put functions here
-                console.log(new Date().toISOString(), 'Change processed successfully');
-            } catch (error) {
-                console.error(new Date().toISOString(), 'Error processing change:', error);
-            } finally {
-                console.log(new Date().toISOString(), 'Resetting isProcessing and debounceTimer');
-                isProcessing = false;
-                debounceTimer = null;
-            }
-        }
-    }, 45000); // Wait 45 second before processing
-    console.log(new Date().toISOString(), `Timer set (ID: ${debounceTimer}), waiting 45 seconds...`);
-}
+process.on('SIGINT', () => closeGracefully('SIGINT'));
+process.on('SIGTERM', () => closeGracefully('SIGTERM'));
+
+start();
 
