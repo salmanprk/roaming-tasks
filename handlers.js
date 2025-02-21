@@ -10,5 +10,7 @@ export const handleCRSDrawsUpdate = async (payload) => {
         method: 'GET',
     });
     const data = await response.json();
+    console.log("Called webhook", devWebhook)
     console.log('Response from webhook:', data);
+    return data
 };

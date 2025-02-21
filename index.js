@@ -1,11 +1,8 @@
 import Fastify from 'fastify';
-import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { handleCRSDrawsUpdate } from './handlers.js';
 import { format } from 'date-fns';
 import { log, ts } from './utils/logger.js';
-// Initialize environment variables
-dotenv.config();
 
 const app = Fastify({
     logger: {
@@ -14,11 +11,13 @@ const app = Fastify({
             options: {
                 colorize: true,
                 ignore: 'pid,hostname',
-                // translateTime: 'SYS:standard'
             }
         }
     }
 });
+
+// Add environment logging at startup
+log.info(`Environment: ${process.env.NODE_ENV}`);
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -31,8 +30,9 @@ let debounceTimer = null;
 let isProcessing = false;
 
 // Root route - just to confirm service is running
-app.get('/', async (request, reply) => {
-    return { status: 'CRSDraws real-time listener is running!' };
+app.get('/', async (request, res) => {
+    app.log.info("Webhook is responding to health check")
+    return res.status(200).send({ status: 'CRSDraws real-time listener is running!' });
 });
 // Function to handle changes (your existing code)
 function handleBalancer(payload) {
@@ -50,8 +50,9 @@ function handleBalancer(payload) {
             isProcessing = true;
             try {
                 log.info('Before calling handlers');
-                await handleCRSDrawsUpdate(payload);
+                const update = await handleCRSDrawsUpdate(payload);
                 log.success('Change processed successfully');
+                log.success(update);
             } catch (error) {
                 log.error('Error processing change:', error);
             } finally {
@@ -67,7 +68,10 @@ function handleBalancer(payload) {
 
 // Function to listen for changes
 const listenForChanges = async () => {
-    console.log('Listening for updates on CRSDraws table...');
+    log.info('Listening for updates on CRSDraws table...');
+    // Log environment variables using custom logger
+    log.info('SUPABASE_URL:', process.env.SUPABASE_URL);
+    log.info('SUPABASE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY?.slice(0, 10) + '...');  // Only show part of the key for security
 
     supabase
         .channel('crs-draws-updates')
