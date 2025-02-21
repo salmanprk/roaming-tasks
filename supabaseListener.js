@@ -59,6 +59,10 @@ export const supabaseListener = async () => {
                 schema: 'public',
                 table: 'CRSDraws'
             },
+            // Use the handleBalancer function to handle once for multiple changes
+            // This is to prevent multiple calls to the webhook
+            // This is a debounce function that will call the webhook once for multiple changes
+            // To respond to each change individually, remove the debounce function and write custom logic
             handleBalancer
         )
         .subscribe((status) => {
